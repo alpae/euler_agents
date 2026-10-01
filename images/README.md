@@ -87,6 +87,17 @@ in `home-codex/` (each mounted as the agent's `$HOME`) — both are outside the 
 
 ## Rebuild log
 
+### 2026-10-01 — `euler-agents-20261001.sif` (Claude Code update to 2.1.286)
+
+- **Reason:** keep the container's Claude Code in step with the updated host CLI (2.1.286).
+- **Change:** rebuild from the unmodified `euler-agents.def` with
+  `--build-arg CLAUDE_CODE_VERSION="$(claude --version | awk '{print $1}')"`; Codex came out as
+  `codex-cli 0.159.3` (latest).
+- **Verified:** `/etc/euler-agents-versions` reports `claude-code: 2.1.286` and
+  `codex: codex-cli 0.159.3`; `claude auth status` with the stored login reports
+  `loggedIn: true` (claude.ai, team subscription).
+- **Action:** `image_path` repointed in `config/settings.json` and `config/settings.local.json`.
+
 ### 2026-09-07 — `euler-agents-20260907.sif` (Claude Code pinned to the host version)
 
 - **Reason:** the container's Claude Code (2.1.185) lagged the host's (2.1.263). Since the
