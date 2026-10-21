@@ -1,5 +1,6 @@
 {
   "workspace_dir": "/cluster/work/<group>/<username>/agentic_ai/workspaces",
+  "legacy_workspace_dirs": [],
   "logs_dir": "/cluster/project/<group>/<username>/logs",
   "image_path": "/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-20261001.sif",
   "conda_envs_dir": null,

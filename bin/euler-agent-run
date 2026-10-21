@@ -290,6 +290,17 @@ if [[ -n "$PROJECT" ]]; then
         exit 1
     fi
     RUN_WORKSPACE="$WORKSPACE_DIR/$PROJECT"
+    # A project that predates a workspace_dir change keeps its old location: if it does
+    # not exist under workspace_dir but does under one of legacy_workspace_dirs, use that.
+    if [[ ! -d "$RUN_WORKSPACE" ]]; then
+        while IFS= read -r _legacy; do
+            if [[ -n "$_legacy" && -d "$_legacy/$PROJECT" ]]; then
+                RUN_WORKSPACE="$_legacy/$PROJECT"
+                echo "Project '$PROJECT' found in legacy workspace dir: $RUN_WORKSPACE"
+                break
+            fi
+        done < <(_setting "'\n'.join(s.get('legacy_workspace_dirs') or [])")
+    fi
     # Slashes are fine in a path but not in a session name.
     PROJECT_SLUG="${PROJECT//\//-}"
 else
