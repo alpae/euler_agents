@@ -11,3 +11,6 @@ tasks/
 # SLURM job logs (keep the test scripts, not their output)
 test_slurm/*.out
 test_slurm/*.err
+
+# Personal launch-command notes
+/commands.txt
