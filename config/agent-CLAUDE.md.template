@@ -26,7 +26,7 @@ and the host tool dirs as `Host ...: PATH (mode)`).
 
 | Path | Mode | What it is |
 |---|---|---|
-| `/cluster/project/<group>/<user>/agentic_ai/workspaces/<project>` | read-write | The workspace and your starting directory, on project storage. Large outputs go here. |
+| `/cluster/work/<group>/<user>/agentic_ai/workspaces/<project>` | read-write | The workspace and your starting directory, on work storage (not backed up). Large outputs go here. |
 | `/cluster/home/<user>/src/<repo>` | read-write | The code repository you are working on. Backed by the user's home, which has a quota: source only, no data. |
 | `/cluster/project/<group>/<user>/<data>` | **read-only** | Input data. Writes will fail; that is intentional. |
 | `/cluster/project/<group>/<user>/conda/envs` | read-only | The user's conda environments. Activate them; do not install into them. |

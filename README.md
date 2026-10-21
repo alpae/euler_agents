@@ -79,14 +79,14 @@ Create `config/settings.local.json` with your own paths (gitignored, merges over
 
 ```json
 {
-  "workspace_dir": "/cluster/project/<group>/<username>/workspaces",
+  "workspace_dir": "/cluster/work/<group>/<username>/agentic_ai/workspaces",
   "logs_dir":      "/cluster/project/<group>/<username>/logs",
   "image_path":    "/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents.sif"
 }
 ```
 
 ```bash
-mkdir -p /cluster/project/<group>/<username>/{workspaces,logs}
+mkdir -p /cluster/work/<group>/<username>/agentic_ai/workspaces /cluster/project/<group>/<username>/logs
 ```
 
 > The merge is shallow: a top-level key in `settings.local.json` replaces the whole block from
