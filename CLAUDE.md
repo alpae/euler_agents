@@ -104,7 +104,7 @@ allocation flags go in `euler-agent-submit`.
   replaced whole.
 - **Cluster profiles**: `"site"` (default `curnagl`) selects `config/sites/<site>.json` — modules,
   `container_cmd`, `max_time`, `cpu_partition` / `gpu_partition` or Euler's
-  `gpu_partitions_by_hours`, `default_gpu_type`, `gpu_mem_gres`, `gpu_sbatch_args`,
+  `gpu_partitions_by_hours`, `gpu_request`, `default_gpu_type`, `gpu_mem_gres`, `gpu_sbatch_args`,
   `mail_domain`, `presets` (override `config/presets.json` by name). `"site_overrides"` in
   settings patches single keys. Anything cluster-specific goes here.
 - Settings are read through `_setting`/`_site`/`_agent_setting`, which run small `python3 -c`

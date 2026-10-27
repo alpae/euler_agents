@@ -28,8 +28,9 @@ OPTIONS
   --notify-success        Send a notification email on success (overrides config)
   --no-notify-success     Suppress success notification for this run (overrides config)
   --gpu                   Request one GPU and the site's GPU partition (see config/sites/)
-  --gpu-type TYPE         GPU type to request (--gpus=TYPE:1). Default from the site profile;
-                            none means any GPU (--gpus=1). Known types on Euler:
+  --gpu-type TYPE         GPU type to request, in the site's form ("gpu_request": Curnagl
+                            --gres=gpu:TYPE:1, Euler --gpus=TYPE:1). Default from the site
+                            profile; none means any GPU. Known types on Euler:
                             a100                    — any A100 (40 or 80 GB)
                             nvidia_a100_80gb_pcie   — A100 80 GB (use with --gpu-mem 80g)
                             nvidia_rtx_pro_6000     — RTX Pro 6000 Blackwell 96 GB
@@ -237,8 +238,9 @@ PARTITION="$GPU_PARTITION_OVERRIDE"
 if [[ "$GPU" == true ]]; then
     [[ -z "$PARTITION" ]] && PARTITION=$(_site "s.get('gpu_partition') or ''")
     [[ -z "$PARTITION" ]] && PARTITION=$(_tiered_partition)
-    # A typed request where the site has GPU types; any GPU otherwise.
-    GPU_SLURM_ARGS=(--gpus="${GPU_TYPE:+$GPU_TYPE:}1")
+    # One GPU in the site's request form; {type} becomes "TYPE:" or nothing (any GPU).
+    _gpu_request=$(_site "s.get('gpu_request') or '--gpus={type}1'")
+    GPU_SLURM_ARGS=("${_gpu_request//\{type\}/${GPU_TYPE:+$GPU_TYPE:}}")
     while IFS= read -r _arg; do
         [[ -n "$_arg" ]] && GPU_SLURM_ARGS+=("$_arg")
     done < <(_site "'\n'.join(s.get('gpu_sbatch_args') or [])")

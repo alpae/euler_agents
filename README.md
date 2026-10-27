@@ -174,7 +174,7 @@ sbatch -p cpu --time=1-00:00:00 \
 *With a GPU*, when the agent needs to train or run inference:
 
 ```bash
-sbatch -p gpu --gpus=1 --time=1-00:00:00 \
+sbatch -p gpu --gres=gpu:1 --time=1-00:00:00 \
     --cpus-per-task=4 --mem-per-cpu=8G \
     --job-name=agent-node --wrap="sleep infinity"
 ```
@@ -408,7 +408,8 @@ euler-agent-submit --agent claude --gpu --gpu-type nvidia_a100_80gb_pcie --gpu-m
 euler-agent-submit --agent claude --cpus 4 --mem-per-cpu 8G --task "..."
 ```
 
-`--gpu` requests one GPU (`--gpus=1`, or `--gpus=<type>:1` with `--gpu-type`) with a 4-hour
+`--gpu` requests one GPU in the site's form (`--gres=gpu:1` on Curnagl, `--gpus=<type>:1` on
+Euler; `--gpu-type` sets the type) with a 4-hour
 default time limit, on the site's GPU partition: `gpu` on Curnagl, a time-tiered `gpupr.*` on
 Euler. Without `--gpu` the job goes to the site's CPU partition (`cpu` on Curnagl). A `--time`
 above the site's limit (3 days on Curnagl) is refused before anything is submitted. On Euler,
@@ -684,6 +685,7 @@ settings (default `curnagl`):
 | `container_cmd` | `singularity` | `singularity` |
 | `max_time` | `3-00:00:00` | none |
 | `cpu_partition` / `gpu_partition` | `cpu` / `gpu` | none / chosen from `gpu_partitions_by_hours` |
+| `gpu_request` | `--gres=gpu:{type}1` | `--gpus={type}1` (`{type}` = `TYPE:` or empty) |
 | `default_gpu_type` | none (any GPU) | `a100` |
 | `gpu_mem_gres` | false | true (`--gpu-mem` allowed) |
 
