@@ -1,8 +1,10 @@
 {
-  "workspace_dir": "/cluster/work/<group>/<username>/agentic_ai/workspaces",
+  "site": "curnagl",
+  "site_overrides": {},
+  "workspace_dir": "/scratch/<username>/agentic_ai/workspaces",
   "legacy_workspace_dirs": [],
-  "logs_dir": "/cluster/project/<group>/<username>/logs",
-  "image_path": "/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-20261001.sif",
+  "logs_dir": "/scratch/<username>/agentic_ai/logs",
+  "image_path": "/work/FAC/<faculty>/<department>/<pi>/<project>/agentic_ai/images/euler-agents-YYYYMMDD.sif",
   "conda_envs_dir": null,
   "conda_pkgs_dir": null,
   "pixi_home": null,

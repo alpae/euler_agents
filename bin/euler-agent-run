@@ -54,6 +54,9 @@ OPTIONS
                               to ro; '#' starts a comment). Relative SRC paths resolve against
                               the file's directory, so a repo can ship its own file with '.:rw'.
                               Repeatable. An --extra-bind for the same destination wins.
+  --workdir DIR               Directory the agent (or the interactive shell) starts in, instead of
+                              the workspace. Must be the workspace, a bind destination, or a
+                              directory below one, e.g. the code repo passed with --extra-bind.
   --interactive               Open an interactive shell inside the container instead of running
   --claude-login              One-time: run 'claude auth login' with home-claude/ writable to
                               obtain the full-scope OAuth login Remote Control requires. Run this
@@ -96,6 +99,8 @@ PATHS INSIDE THE CONTAINER
 CONFIGURATION
   config/settings.json   Image path, workspace dir, host tool dirs, git identity, per-agent
                          model/budget defaults. Override in config/settings.local.json.
+  config/sites/*.json    Cluster profile picked by "site" in settings: modules to load,
+                         container command, partitions, time limit.
   config/task.json       Default task used when no --task / --task-file given
   config/secrets.env     API keys (gitignored, sourced automatically)
 EOF
@@ -103,25 +108,12 @@ EOF
 
 SCRIPT_PATH=$(realpath "$0")
 REPO_DIR=$(dirname "$(dirname "$SCRIPT_PATH")")
-SETTINGS="$REPO_DIR/config/settings.json"
-
-SETTINGS_LOCAL="$REPO_DIR/config/settings.local.json"
-if [[ -f "$SETTINGS_LOCAL" ]]; then
-    _TMP=$(mktemp)
-    python3 -c "
-import json
-s = json.load(open('$SETTINGS'))
-s.update(json.load(open('$SETTINGS_LOCAL')))
-json.dump(s, open('$_TMP', 'w'))
-"
-    SETTINGS="$_TMP"
-fi
-
-_setting() {
-    python3 -c "import json; s=json.load(open('$SETTINGS')); print($1)"
-}
+# Merged settings + cluster profile (config/sites/<site>.json); defines _setting and _site.
+source "$REPO_DIR/bin/host-config.sh"
 
 WORKSPACE_DIR=$(_setting "s['workspace_dir']")
+CONTAINER_CMD=$(_site "s.get('container_cmd') or 'singularity'")
+MAIL_DOMAIN=$(_site "s.get('mail_domain') or ''")
 IMAGE_PATH=$(_setting "s['image_path']")
 LOGS_DIR=$(_setting "s.get('logs_dir', s['workspace_dir'] + '/logs')")
 
@@ -149,6 +141,7 @@ AGENT_EFFORT=""
 AUTH_MODE=""
 PROJECT=""
 REF_DIR=""
+WORKDIR=""
 EXTRA_BINDS=()
 EXTRA_READ_BINDS=()
 BIND_FILES=()
@@ -174,6 +167,7 @@ while [[ $# -gt 0 ]]; do
         --extra-bind)        EXTRA_BINDS+=("$2");      shift 2 ;;
         --extra-read-bind)   EXTRA_READ_BINDS+=("$2"); shift 2 ;;
         --binds-file)        BIND_FILES+=("$2");       shift 2 ;;
+        --workdir)           WORKDIR="$2";             shift 2 ;;
         --remote-control)    REMOTE_CONTROL=true;      shift ;;
         --claude-login)      CLAUDE_LOGIN=true;        shift ;;
         --gpu)               GPU=true;                 shift ;;
@@ -197,6 +191,14 @@ case "$MODEL" in
         exit 1 ;;
 esac
 
+# Site modules first: on some clusters the container runtime itself is a module.
+_load_site_modules
+if ! command -v "$CONTAINER_CMD" >/dev/null 2>&1; then
+    echo "ERROR: container command '$CONTAINER_CMD' not found (site '$(_site "s['name']")')." >&2
+    echo "       Check \"modules\" and \"container_cmd\" in config/sites/$(_site "s['name']").json." >&2
+    exit 1
+fi
+
 # One-time interactive OAuth login for Claude Remote Control.
 # Remote Control requires a full-scope claude.ai login token (API keys and the
 # inference-only `claude setup-token` are both rejected). We run `claude auth login`
@@ -209,7 +211,7 @@ if [[ "$CLAUDE_LOGIN" == true ]]; then
     echo "Launching 'claude auth login' inside the container."
     echo "  Credentials persist in: $SOURCE_HOME  (gitignored)"
     echo "  Choose your claude.ai account (NOT an API key) when prompted."
-    singularity exec \
+    "$CONTAINER_CMD" exec \
         --cleanenv --containall \
         --home "$SOURCE_HOME:/home" \
         --env "PATH=/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
@@ -572,14 +574,39 @@ for _file in ${BIND_FILES[@]+"${BIND_FILES[@]}"}; do
     done < "$_file"
 done
 
+# Starting directory: the workspace unless --workdir names one inside a mount. It is a
+# container-side path; for identity binds that is the host path too. Its trust and its
+# session directory are set up below like those of a bind destination, since Claude
+# keys both by the exact cwd.
+START_DIR="$RUN_WORKSPACE"
+if [[ -n "$WORKDIR" ]]; then
+    WORKDIR=$(realpath -m -- "$WORKDIR")
+    _inside=false
+    for _d in "${MOUNTED_DESTS[@]}"; do
+        [[ "$_d" == /home || "$_d" == /tmp || "$_d" == "$REPO_DIR" ]] && continue
+        [[ "$WORKDIR" == "$_d" || "$WORKDIR" == "$_d"/* ]] && _inside=true
+    done
+    if [[ "$_inside" != true ]]; then
+        echo "ERROR: --workdir $WORKDIR is not the workspace or inside a bind." >&2
+        echo "       Mount it (or a parent) with --extra-bind first." >&2
+        exit 1
+    fi
+    START_DIR="$WORKDIR"
+    [[ "$START_DIR" != "$RUN_WORKSPACE" ]] && BIND_DESTS+=("$START_DIR") && SESSION_DESTS+=("$START_DIR")
+    echo "Workdir:   $START_DIR"
+fi
+SING_ENV+=(--env "AGENT_WORKDIR=$START_DIR")
+
 # Per-session briefing for the agent: the generic text from config/agent-briefing.md
 # plus the actual mount table of this run. Lands in the job scratch, i.e. at
 # /tmp/agent-briefing.md inside the container, where an interactive user can paste it
 # or start with `claude "$(cat /tmp/agent-briefing.md)"`.
 {
     cat "$REPO_DIR/config/agent-briefing.md"
+    printf '\n## This cluster\n\n%s: %s\n' "$(_site "s['name']")" "$(_site "s.get('description', '')")"
     printf '\n## Mounts in this session\n\n'
-    printf 'Workspace and starting directory: `%s`\n\n' "$RUN_WORKSPACE"
+    printf 'Workspace: `%s`\n\n' "$RUN_WORKSPACE"
+    printf 'Starting directory: `%s`\n\n' "$START_DIR"
     printf '| Path inside = on the host | Mode |\n|---|---|\n'
     for ((_i = 0; _i < ${#SING_BINDS[@]}; _i++)); do
         [[ "${SING_BINDS[$_i]}" == --bind ]] || continue
@@ -651,9 +678,9 @@ if [[ "$INTERACTIVE" == true ]]; then
     # no way to load an rcfile: bin/claude-shellrc is what makes the bare `claude`
     # and `codex` commands skip permission prompts, matching bin/inner.sh.
     # The repo is bound at its host path, so the rcfile is addressed by $REPO_DIR.
-    singularity exec \
+    "$CONTAINER_CMD" exec \
         --cleanenv --containall \
-        --pwd "$RUN_WORKSPACE" \
+        --pwd "$START_DIR" \
         "${NV_FLAG[@]+"${NV_FLAG[@]}"}" \
         "${SING_ENV[@]}" \
         "${SING_BINDS[@]}" \
@@ -661,9 +688,9 @@ if [[ "$INTERACTIVE" == true ]]; then
         bash --rcfile "$REPO_DIR/bin/claude-shellrc" -i
 else
     AGENT_EXIT=0
-    singularity exec \
+    "$CONTAINER_CMD" exec \
         --cleanenv --containall \
-        --pwd "$RUN_WORKSPACE" \
+        --pwd "$START_DIR" \
         "${NV_FLAG[@]+"${NV_FLAG[@]}"}" \
         "${SING_ENV[@]}" \
         "${SING_BINDS[@]}" \
@@ -681,6 +708,7 @@ else
     NOTIFY_ON_FAILURE="$NOTIFY_ON_FAILURE" \
     NOTIFY_ON_SUCCESS="$NOTIFY_ON_SUCCESS" \
     LOGS_DIR="$LOGS_DIR" \
+    MAIL_DOMAIN="$MAIL_DOMAIN" \
     "$REPO_DIR/bin/notify.sh" \
         --exit-code "$AGENT_EXIT" \
         --workspace "$RUN_WORKSPACE" \

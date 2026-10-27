@@ -1,4 +1,4 @@
-# Briefing: you are running inside a Singularity container on the ETH Euler cluster
+# Briefing: you are running inside a Singularity container on a SLURM cluster
 
 Paste this as the first message of an interactive session (or start with
 `claude "$(cat /tmp/agent-briefing.md)"`, which uses the copy the launcher wrote for this

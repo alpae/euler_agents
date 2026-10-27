@@ -20,8 +20,9 @@ JOB_ID="${SLURM_JOB_ID:-interactive}"
 # `--remote-control` flag which falls through to --print and demands stdin input.
 if [[ "${REMOTE_CONTROL:-}" == "true" ]]; then
     RC_NAME="${RC_SESSION_NAME:-euler-rc}"
-    cd "$AGENT_WORKSPACE"
+    cd "${AGENT_WORKDIR:-$AGENT_WORKSPACE}"
     if [[ -n "$REPO_URL" ]]; then
+        cd "$AGENT_WORKSPACE"
         REPO_NAME=$(basename "$REPO_URL" .git)
         [[ -d "$REPO_NAME" ]] || git clone "$REPO_URL" "$REPO_NAME"
         cd "$REPO_NAME"
@@ -85,11 +86,13 @@ After completing the above task, write a concise summary (max 20 lines) to /tmp/
 - key outputs created (paths and sizes if relevant)
 - any errors or limitations encountered"
 
-cd "$AGENT_WORKSPACE"
+cd "${AGENT_WORKDIR:-$AGENT_WORKSPACE}"
 
 # No git credentials exist in the container: public repos clone anonymously, and the
-# agent's commits stay local until the user pushes from the host.
+# agent's commits stay local until the user pushes from the host. The clone always goes
+# into the workspace (an existing copy there is replaced), never into a --workdir.
 if [[ -n "$REPO_URL" ]]; then
+    cd "$AGENT_WORKSPACE"
     REPO_NAME=$(basename "$REPO_URL" .git)
     [[ -d "$REPO_NAME" ]] && rm -rf "$REPO_NAME"
     echo "=== Cloning $REPO_URL ==="

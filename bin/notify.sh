@@ -8,6 +8,7 @@
 #   NOTIFY_ON_FAILURE     — true|false
 #   NOTIFY_ON_SUCCESS     — true|false
 #   LOGS_DIR              — path to slurm log directory
+#   MAIL_DOMAIN           — sender domain, from the site profile
 
 AGENT_EXIT=0
 WORKSPACE=""
@@ -73,7 +74,7 @@ fi
 
 /usr/sbin/sendmail -t << EOF
 To: $ADDRESS
-From: ${USER:-euler}@ethz.ch
+From: ${USER:-euler-agents}@${MAIL_DOMAIN:-localhost}
 Subject: Job ${STATUS}: $AGENT ($JOB_ID)
 
 $BODY
