@@ -11,8 +11,9 @@ This directory holds the image definition for the agent runtime.
   - Miniforge (conda + mamba) at `/opt/conda` — agents create their own envs at runtime
   - `uv` for fast pip installs; plus `git`, `curl`, `bubblewrap`, build tools, etc.
 
-The built `.sif` files live **outside the repo** at
-`/cluster/project/beltrao/jbuhmann/agentic_ai/images/`. The active image is selected by the
+The built `.sif` files live **outside the repo**, in a project directory such as
+`/work/<project_dir>/agentic_ai/images/` on Curnagl (on Euler:
+`/cluster/project/beltrao/jbuhmann/agentic_ai/images/`). The active image is selected by the
 `image_path` key in `config/settings.local.json` (which overrides `config/settings.json` —
 `euler-agent-run` merges local over base, so the `.local` value wins).
 
@@ -31,15 +32,16 @@ the live `.sif`. This keeps the previous image as an instant rollback.
 A login node is usually enough:
 
 ```bash
-module load eth_proxy        # network access for apt/npm/conda during %post
+module load singularityce    # Curnagl: the runtime is a module
+# Euler instead: module load eth_proxy   (network access for apt/npm/conda during %post)
 ```
 
 If the login node lacks resources or disallows the build, grab an interactive compute node
 (SLURM) instead — request local scratch for the build tmpdir:
 
 ```bash
-srun --ntasks=1 --cpus-per-task=4 --mem-per-cpu=4G --tmp=20G --time=01:00:00 --pty bash
-module load eth_proxy
+srun -p cpu --ntasks=1 --cpus-per-task=4 --mem-per-cpu=4G --time=01:00:00 --pty bash
+module load singularityce    # Euler: drop -p cpu, add --tmp=20G, module load eth_proxy
 ```
 
 ### 2. Build to a dated filename
@@ -50,7 +52,7 @@ export APPTAINER_TMPDIR="${TMPDIR:-/tmp}/apptainer_tmp"; mkdir -p "$APPTAINER_TM
 
 singularity build --fakeroot \
     --build-arg CLAUDE_CODE_VERSION="$(claude --version | awk '{print $1}')" \
-    /cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-$(date +%Y%m%d).sif \
+    /work/<project_dir>/agentic_ai/images/euler-agents-$(date +%Y%m%d).sif \
     images/euler-agents.def
 ```
 
@@ -63,7 +65,7 @@ untouched: if the build fails, nothing in production breaks.
 Confirm the installed versions and that the stored login works, without touching the config:
 
 ```bash
-IMG=/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-YYYYMMDD.sif
+IMG=/work/<project_dir>/agentic_ai/images/euler-agents-YYYYMMDD.sif
 singularity exec --cleanenv --containall --home "$PWD/home-claude:/home" "$IMG" \
     bash -lc 'export HOME=/home; cat /etc/euler-agents-versions; claude auth status'
 ```
@@ -77,7 +79,7 @@ Edit `image_path` in `config/settings.local.json` (the effective override; also 
 `config/settings.json` to keep the committed default in sync):
 
 ```json
-"image_path": "/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-YYYYMMDD.sif",
+"image_path": "/work/<project_dir>/agentic_ai/images/euler-agents-YYYYMMDD.sif",
 ```
 
 Rollback = point `image_path` back at the previous `.sif`. No rebuild needed.

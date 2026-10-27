@@ -2,7 +2,9 @@
 
 ## In a nutshell
 
-Run Claude Code on Euler compute nodes. The agent runs inside a Singularity container — the
+Run Claude Code on SLURM compute nodes. This fork is set up for UNIL's **Curnagl**; the ETH
+Euler setup it comes from is kept as a second [cluster profile](#cluster-profiles). The agent runs
+inside a Singularity container — the
 container runtime available on HPC clusters — which isolates it from the host filesystem: it sees
 only the directories you explicitly mount, and it sees them **at their host paths**, so scripts,
 job files and conda environments the agent produces run unchanged outside the container.
@@ -63,7 +65,7 @@ and for the login step below.
 
 ```bash
 cd ~/src
-git clone <repo-url> euler_agents
+git clone https://github.com/alpae/euler_agents.git euler_agents
 cd euler_agents
 make install   # symlinks CLIs to ~/.local/bin
 ```
@@ -75,28 +77,34 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Create `config/settings.local.json` with your own paths (gitignored, merges over
-`settings.json`):
+`settings.json`). `"site"` picks the cluster profile and defaults to `curnagl`:
 
 ```json
 {
-  "workspace_dir": "/cluster/work/<group>/<username>/agentic_ai/workspaces",
-  "logs_dir":      "/cluster/project/<group>/<username>/logs",
-  "image_path":    "/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents.sif"
+  "site":          "curnagl",
+  "workspace_dir": "/scratch/<username>/agentic_ai/workspaces",
+  "logs_dir":      "/scratch/<username>/agentic_ai/logs",
+  "image_path":    "/work/FAC/<faculty>/<department>/<pi>/<project>/agentic_ai/images/euler-agents-YYYYMMDD.sif"
 }
 ```
 
 ```bash
-mkdir -p /cluster/work/<group>/<username>/agentic_ai/workspaces /cluster/project/<group>/<username>/logs
+mkdir -p /scratch/$USER/agentic_ai/workspaces /scratch/$USER/agentic_ai/logs
 ```
+
+Any path works for `workspace_dir` as long as it is the same on every node and survives
+between jobs: Claude files sessions and memory under the absolute working directory, so a
+path that changes per job (node-local `$TMPDIR`) loses them. A shared scratch is fine, but
+check its purge policy and keep code in git — or put the workspace under `/work`.
 
 > The merge is shallow: a top-level key in `settings.local.json` replaces the whole block from
 > `settings.json`. If you override part of `"slurm"` or `"claude"`, restate every key in it.
 
 ### 3. Singularity image
 
-A pre-built image is at `/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents.sif` —
-no action needed unless you are rebuilding it. See
-[rebuilding the image](#rebuilding-the-image).
+Build one on a Curnagl login node and point `image_path` at it — see
+[rebuilding the image](#rebuilding-the-image). (On Euler, a pre-built image is at
+`/cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents-20261001.sif`.)
 
 ### 4. Log in to your claude.ai account
 
@@ -155,31 +163,32 @@ you can check in from your phone and put it down again.
 the agent will do; the wall time also bounds how long the session lives.
 
 *CPU only*, with generous cores and memory (16 × 8 GB = 128 GB here) for data wrangling and
-analysis. Leave the partition to SLURM, which picks one from the requested time:
+analysis. Curnagl caps every job at 3 days:
 
 ```bash
-sbatch --time=1-00:00:00 \
-    --cpus-per-task=16 --mem-per-cpu=8G --tmp=100G \
+sbatch -p cpu --time=1-00:00:00 \
+    --cpus-per-task=16 --mem-per-cpu=8G \
     --job-name=agent-node --wrap="sleep infinity"
 ```
 
-*With a GPU*, when the agent needs to train or run inference. Here the partition family depends
-on the card — see [GPUs, partitions and Slurm accounts](#gpus-partitions-and-slurm-accounts):
+*With a GPU*, when the agent needs to train or run inference:
 
 ```bash
-sbatch -p cuda13pr.120h --time=5-00:00:00 \
-    --gpus=nvidia_rtx_pro_6000:1 --gres=gpumem:96g \
-    --cpus-per-task=4 --mem-per-cpu=8G --tmp=100G \
+sbatch -p gpu --gpus=1 --time=1-00:00:00 \
+    --cpus-per-task=4 --mem-per-cpu=8G \
     --job-name=agent-node --wrap="sleep infinity"
 ```
+
+On Euler the partition and GPU request look different — see
+[Euler: GPUs, partitions and Slurm accounts](#euler-gpus-partitions-and-slurm-accounts).
 
 An idle GPU reservation still holds the card, so prefer the CPU node unless the agent needs one.
 
 **2. Find the node and SSH in** (once the job shows `R` / RUNNING):
 
 ```bash
-squeue --me                 # note JOBID and NODELIST (e.g. eu-g5-042)
-ssh <nodename>              # Euler allows SSH to nodes you hold an allocation on
+squeue --me                 # note JOBID and NODELIST
+ssh <nodename>              # where the cluster allows SSH to nodes you hold an allocation on
 # fallback if SSH to the node is blocked:  srun --jobid=<jobid> --pty bash
 ```
 
@@ -190,7 +199,8 @@ tmux new -s agent
 ```
 
 **4. Start the container with the directories you want mounted.** Use `euler-agent-run`, *not*
-`submit` — you already hold the node:
+`submit` — you already hold the node. It loads the site's modules itself (`singularityce` on
+Curnagl, `eth_proxy` on Euler), so there is no `module load` step:
 
 ```bash
 cd /path/to/euler_agents
@@ -247,7 +257,7 @@ A repository can carry its own list instead, so you stop retyping it: put a file
 ```
 # euler-agents.binds — one SRC[:DEST][:ro|rw] per line, mode defaults to ro
 .:rw                                              # this repo, read-write
-/cluster/project/<group>/<user>/mydata:ro         # input data
+/work/<project_dir>/mydata:ro                     # input data
 ```
 
 ```bash
@@ -281,7 +291,7 @@ The host `$HOME` is never mounted and only `/etc/localtime` and `/etc/hosts` are
 the blast radius is exactly the table above. That is what makes it reasonable to run with
 permission prompts bypassed: `bin/claude-shellrc` wraps `claude` and `codex` so the bare commands
 skip them. A bound directory's *parents* exist inside only as empty mount points, so listing
-`/cluster/project` shows just the pieces that were bound.
+`/work` shows just the pieces that were bound.
 
 ### Terminal only, without steering
 
@@ -306,17 +316,19 @@ and the model and effort flags apply as normal. Transcripts persist either way (
 **Fire-and-forget via SLURM.** No node to hold, no tmux — SLURM allocates and starts the session:
 
 ```bash
-euler-agent-submit --agent claude --remote-control --project mywork --time 8:00:00
+euler-agent-submit --agent claude --remote-control --project mywork --time 8:00:00 \
+    --extra-bind /path/to/repo --workdir /path/to/repo
 ```
 
 A `claude.ai/code?environment=...` URL appears in `logs/slurm-<jobid>.out`. You cannot intervene
-on the node, and the session ends when `--time` runs out.
+on the node, and the session ends when `--time` runs out (at most 3 days on Curnagl).
+`--workdir` starts the session in one of the mounted directories instead of the workspace; it
+must be the workspace, a bind, or a directory below one.
 
 **Auto-start on a node you hold.** Steps 1–3 as above, then drop `--interactive` so the session
 starts immediately instead of giving you a shell:
 
 ```bash
-module load eth_proxy
 cd /path/to/euler_agents
 bin/euler-agent-run --remote-control --agent claude --project mywork --gpu
 ```
@@ -385,19 +397,23 @@ so an unattended job can quietly consume quota. For real per-run accounting see
 # Named size preset from config/presets.json
 euler-agent-submit --agent claude --preset medium-gpu --project mygpuproject --task "..."
 
-# GPU with an explicit type and VRAM filter
+# Any GPU on the site's GPU partition
 euler-agent-submit --agent claude --gpu \
-    --gpu-type nvidia_a100_80gb_pcie --gpu-mem 80g \
     --project mygpuproject --task "Train the model in train.py, checkpoints to a checkpoints/ subdir of the workspace"
+
+# Euler only: explicit type and VRAM filter
+euler-agent-submit --agent claude --gpu --gpu-type nvidia_a100_80gb_pcie --gpu-mem 80g --task "..."
 
 # CPU sizing
 euler-agent-submit --agent claude --cpus 4 --mem-per-cpu 8G --task "..."
 ```
 
-`--gpu` sets `--gpus=<type>:1`, `--tmp=50G` and a 4-hour default time limit, and auto-selects a
-partition from the requested time. **Always pair `--gpu-type` with `--gpu-mem`** — on Euler the
-type name alone does not enforce which card you get. Types, VRAM values and partition families
-are tabulated in [GPUs, partitions and Slurm accounts](#gpus-partitions-and-slurm-accounts).
+`--gpu` requests one GPU (`--gpus=1`, or `--gpus=<type>:1` with `--gpu-type`) with a 4-hour
+default time limit, on the site's GPU partition: `gpu` on Curnagl, a time-tiered `gpupr.*` on
+Euler. Without `--gpu` the job goes to the site's CPU partition (`cpu` on Curnagl). A `--time`
+above the site's limit (3 days on Curnagl) is refused before anything is submitted. On Euler,
+**always pair `--gpu-type` with `--gpu-mem`** — see
+[Euler: GPUs, partitions and Slurm accounts](#euler-gpus-partitions-and-slurm-accounts).
 
 ### Email notifications
 
@@ -464,8 +480,8 @@ The directory lives in this repo by default. To keep it off your home quota, set
 `home-claude/` (and `home-codex/`) there once:
 
 ```bash
-mkdir -p /cluster/project/<group>/<user>/agentic_ai/agent-homes
-mv home-claude home-codex /cluster/project/<group>/<user>/agentic_ai/agent-homes/
+mkdir -p /work/<project_dir>/agentic_ai/agent-homes
+mv home-claude home-codex /work/<project_dir>/agentic_ai/agent-homes/
 ```
 
 Leftover `<workspace>/<project>/.claude-home` directories from the earlier per-project design
@@ -611,6 +627,7 @@ a compute node.
 | File | Tracked | Holds |
 |---|---|---|
 | `config/settings.json` | yes | committed defaults: image path, workspace dirs, host tool dirs (`conda_envs_dir`, `conda_pkgs_dir`, `pixi_home`, `cache_dir`), `agent_home_dir` (where `home-claude/` lives; null = this repo), git identity, SLURM sizes, per-agent model/budget/auth |
+| `config/sites/<site>.json` | yes | cluster profile selected by `"site"`: modules to load, container command, CPU/GPU partitions, GPU request style, max wall time, mail domain, preset overrides. Tweak single keys with `"site_overrides"` in settings |
 | `config/settings.local.json` | no | your overrides; merged over `settings.json` **shallowly** (a top-level key replaces the whole block) |
 | `config/secrets.env` | no | template for credentials |
 | `config/secrets.local.env` | no | real credentials: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` (only needed for `--auth subscription|apikey`) |
@@ -647,7 +664,7 @@ explanation as the briefing, plus a mount table you fill in once for that repo. 
 the table:
 
 ```bash
-cp config/agent-CLAUDE.md.template /cluster/home/<user>/src/myrepo/CLAUDE.md
+cp config/agent-CLAUDE.md.template ~/src/myrepo/CLAUDE.md
 ```
 
 Placing it in this `euler_agents` repo would not work: it is mounted read-only and is not a
@@ -656,7 +673,26 @@ parent of the agent's working directory.
 Independently of these, your own global `~/.claude/CLAUDE.md` is loaded in every run: the
 launcher copies it into the agent home at launch.
 
-### GPUs, partitions and Slurm accounts
+### Cluster profiles
+
+Everything cluster-specific lives in `config/sites/<site>.json`, picked by `"site"` in the
+settings (default `curnagl`):
+
+| Key | Curnagl | Euler |
+|---|---|---|
+| `modules` | `["singularityce"]` | `["eth_proxy"]` (compute nodes need the proxy for internet) |
+| `container_cmd` | `singularity` | `singularity` |
+| `max_time` | `3-00:00:00` | none |
+| `cpu_partition` / `gpu_partition` | `cpu` / `gpu` | none / chosen from `gpu_partitions_by_hours` |
+| `default_gpu_type` | none (any GPU) | `a100` |
+| `gpu_mem_gres` | false | true (`--gpu-mem` allowed) |
+
+`euler-agent-run` loads the modules on every launch — in a batch job, on a node you hold, and for
+`--claude-login` — so none of the commands in this README need a `module load` first. For
+another cluster, copy one of the files and set `"site"` to its name. To change a single key
+without a new file, use `"site_overrides": { "modules": [] }` in `config/settings.local.json`.
+
+### Euler: GPUs, partitions and Slurm accounts
 
 | GPU | `--gpu-type` | `--gpu-mem` | Partition family |
 |---|---|---|---|
@@ -691,10 +727,11 @@ definition, so a rebuild is how new model support arrives. Build to a **dated fi
 repoint `image_path`, so the previous image stays as an instant rollback:
 
 ```bash
-module load eth_proxy
+module load singularityce        # Euler: module load eth_proxy
 export APPTAINER_TMPDIR="${TMPDIR:-/tmp}/apptainer_tmp"; mkdir -p "$APPTAINER_TMPDIR"
 singularity build --fakeroot \
-    /cluster/project/<group>/<user>/images/euler-agents-YYYYMMDD.sif \
+    --build-arg CLAUDE_CODE_VERSION="$(claude --version | awk '{print $1}')" \
+    /work/<project_dir>/agentic_ai/images/euler-agents-YYYYMMDD.sif \
     images/euler-agents.def
 ```
 
@@ -704,6 +741,7 @@ singularity build --fakeroot \
 
 | Script | Runs where | Role |
 |---|---|---|
+| `bin/host-config.sh` | login or compute node | sourced by `submit` and `run`: merges the settings files and the site profile, loads the site's modules |
 | `bin/euler-agent-submit` | login node | writes and submits the SLURM job, or `srun --pty` for an interactive one; forwards everything else to `euler-agent-run` |
 | `slurm/run-agent.sh` | compute node | thin SLURM wrapper that calls `euler-agent-run` |
 | `bin/euler-agent-run` | compute or login node | resolves config, sets up the workspace, tmpdir and home, then starts Singularity. This is the only script that launches a container, and it needs no SLURM |
@@ -727,7 +765,6 @@ refreshable login copied into every run's home — the token is static and injec
 instead. Generate it on a login node:
 
 ```bash
-module load eth_proxy
 claude setup-token            # prints a token, sk-ant-oat...
 echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-..." >> config/secrets.local.env
 chmod 600 config/secrets.local.env
@@ -782,11 +819,11 @@ mounted as `$HOME` in every run. Once, on a login node:
 
 ```bash
 cd ~/src/euler_agents
-module load eth_proxy
+module load singularityce        # Euler: module load eth_proxy
 singularity shell --cleanenv --containall \
     --home "$(pwd)/home-codex:/home" \
     --bind /tmp:/tmp \
-    /cluster/project/beltrao/jbuhmann/agentic_ai/images/euler-agents.sif
+    <image_path>
 ```
 
 Inside the container, complete the browser OAuth flow:
